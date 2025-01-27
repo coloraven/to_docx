@@ -1,26 +1,28 @@
-# 基于 sanketb/libreoffice-headless:alpine
-FROM sanketb/libreoffice-headless:alpine
+FROM docker.linkos.org/bitnami/java
 
-# 设置工作目录
-WORKDIR /app
+# 设置非交互模式以避免交互式提示
+ENV DEBIAN_FRONTEND=noninteractive
 
-# 替换为清华的 Alpine 源
-RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apk/repositories
+# 替换为清华的 Debian 源
+RUN sed -i 's|http://deb.debian.org|https://mirrors.tuna.tsinghua.edu.cn|g' /etc/apt/sources.list && \
+    sed -i 's|http://security.debian.org|https://mirrors.tuna.tsinghua.edu.cn/debian-security|g' /etc/apt/sources.list
 
-# 安装 Python 和 pip
-RUN apk update && apk add --no-cache \
+# 更新包列表并安装 LibreOffice Headless 和 Python 环境
+RUN apt-get update && apt-get install -y \
+    libreoffice \
+    libreoffice-java-common \
+    libreoffice-writer \
     python3 \
-    py3-pip \
-    && python3 -m ensurepip \
-    && pip3 install --no-cache-dir --upgrade pip
+    python3-pip \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# 配置 pip 使用清华源
-RUN mkdir -p ~/.pip && \
-    echo "[global]\nindex-url = https://pypi.tuna.tsinghua.edu.cn/simple\n" > ~/.pip/pip.conf
+
 
 # 安装 FastAPI 和 Uvicorn
-RUN pip install --no-cache-dir fastapi uvicorn unoconv python-multipart
+RUN pip install --no-cache-dir fastapi uvicorn unoconv python-multipart -i https://pypi.tuna.tsinghua.edu.cn/simple --break-system-packages
 
+# 验证 Java 和 LibreOffice 的安装
+RUN java -version && soffice --version
 
 # 创建一个 app 目录并复制源代码
 COPY ./app /app
