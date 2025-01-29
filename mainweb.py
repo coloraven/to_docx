@@ -8,7 +8,7 @@ from importlib import metadata
 from xmlrpc.client import ServerProxy
 
 import uvicorn
-from fastapi import FastAPI, Response
+from fastapi import FastAPI, File, Response, UploadFile
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 
@@ -145,6 +145,7 @@ def sync_convert(infileData:bytes=None,convert_to:str="docx"):
 
 @app.post("/convert")
 async def convert_file(request: ConvertRequest):
+    print(request.sourceType,"==>",request.targetType)
     if request.sourceType=='pdf':
         return JSONResponse(content={"error":f"unsurpported source file type"})
     if request.sourceType in ['ppt','pptx'] and request.targetType in ['doc','docx','xls','xlsx']:
@@ -159,8 +160,25 @@ async def convert_file(request: ConvertRequest):
         )
         return Response(content=result, media_type="application/octet-stream")
     except Exception as e:
-        print('执行到except error')
+        print('执行转换失败：',request.sourceType,"==>",request.targetType,e,)
         return JSONResponse(content={"error":f"{e}"})
+
+@app.post("/uploadfile")
+async def convert_file(
+    file: UploadFile = File(...),
+    target_format: str = "docx",
+):
+    """For test"""
+    binary_data = await file.read()
+    # 执行转换
+    try:
+        result = await asyncio.get_event_loop().run_in_executor(
+            executor, sync_convert, binary_data, target_format
+        )
+        return Response(content=result, media_type="application/octet-stream")
+    except Exception as e:
+        print(e)
+    
 
 if __name__ == "__main__":
     print("start uvicorn server...")
