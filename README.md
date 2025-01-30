@@ -1,20 +1,25 @@
 ### 部署
+```bash
+docker build -t uno_api .
+docker run -itd \
+    --name uno_api \
+    -p 8000:8000 \
+    -p 2003:2003 \
+    uno_api
 ```
-docker build -t to_docx .
-docker run -itd --name to_docx -it -p 8500:8000 to_docx
-```
-在`8500`端口提供`api`服务
+在`8000`端口提供`api`服务.
 
-#### 测试
+#### 客户端测试
 ```py
 import base64
 
 import requests
 from joblib import Parallel, delayed
 
+test_path = 'test.dps'
 
 def convert_file(index):
-    with open(r"ttt.dps",'rb') as f:
+    with open(test_path,'rb') as f:
         encoded_bytes = base64.b64encode(f.read()).decode()
         # 添加目标格式参数
     jsondata = {"fileBytes": encoded_bytes, "targetType": "pdf", "sourceType":"dps"}
