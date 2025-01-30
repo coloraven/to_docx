@@ -37,8 +37,11 @@ if __name__ == "__main__":
     Parallel(n_jobs=10)(delayed(convert_file)(i) for i in range(100))
 ```
 ## 批量转换客户端
+建议在`GitHub CodeSpace`下编译
 ```bash
-go build -o converter.exe .
+sudo apt install mingw-w64 -y
+GOOS=windows GOARCH=amd64 go build -o converter_winx64.exe main.go # win64
+GOOS=windows GOARCH=386 go build -o converter_winx86.exe main.go # win32
 ```
 不添加任何参数时，`converter.exe`将自动查找当前目录及其子目录下的`ppt,doc,xls,wps,dps,et`文件分别对应转为`pptx,docx,xlsx,docx,pptx,xlsx`:
     "ppt" => "pptx"
