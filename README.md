@@ -4,7 +4,7 @@ docker build -t uno_api .
 docker run -itd \
     --name uno_api \
     -p 8000:8000 \
-    -p 2003:2003 \
+    -p 2003:2003 \ # 可选
     uno_api
 ```
 在`8000`端口提供`api`服务.
