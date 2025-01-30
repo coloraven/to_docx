@@ -10,7 +10,7 @@ docker run -itd \
 在`8000`端口提供`api`服务.
 
 #### 客户端测试
-```py
+```python
 import base64
 
 import requests
@@ -24,7 +24,7 @@ def convert_file(index):
         # 添加目标格式参数
     jsondata = {"fileBytes": encoded_bytes, "targetType": "pdf", "sourceType":"dps"}
     # 发送 POST 请求
-    r = requests.post("http://192.168.2.128:8500/convert", json=jsondata)
+    r = requests.post("http://192.168.2.128:8000/convert", json=jsondata)
     # print(r.content)
     with open(f"{index}_client_test.pdf", "wb") as f:
         f.write(r.content)
