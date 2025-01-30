@@ -58,7 +58,7 @@ go build -o converter.exe .
 
 ## 其他
 1. 经过测试，当转换仓库根目录下的`无法转换.wps`
-这个文件时，服务端`CPU`一直高占用，可能进入了死循环。原因可能是该文件是老版本的wps格式文件。这会导致服务不可用，可能是`libreoffice`的转换是同步的。  
+这个文件时，服务端`CPU`一直高占用，LibreOffice假死，使用LibreOffice桌面版程序也打不开，程序假死，已向LibreOffice官方反映。  
 
 
     > **此文件来源**：谷歌搜索`9937311.wps`或者`wps文件 filetype:wps`看到的，原始下载链接为：https://www.haizhu.gov.cn/gzhzcg/attachment/7/7706/7706583/9937311.wps。
