@@ -3,7 +3,7 @@ ARG UID=worker
 WORKDIR /app
 
 # 安装 FastAPI 及依赖
-RUN pip install --no-cache-dir fastapi uvicorn python-multipart -i https://pypi.tuna.tsinghua.edu.cn/simple --break-system-packages
+RUN pip install --no-cache-dir fastapi uvicorn python-multipart httpx -i https://pypi.tuna.tsinghua.edu.cn/simple --break-system-packages
 
 # 追加 `program:main` 到 `supervisord.conf`
 USER root

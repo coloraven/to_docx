@@ -7,6 +7,7 @@ from concurrent.futures import ThreadPoolExecutor
 from importlib import metadata
 from xmlrpc.client import ServerProxy
 
+import httpx
 import uvicorn
 from fastapi import FastAPI, File, Response, UploadFile
 from fastapi.responses import JSONResponse
@@ -143,25 +144,63 @@ def sync_convert(infileData:bytes=None,convert_to:str="docx"):
     )
     return result
 
+import httpx
+
+
+async def convert_via_wps_backend(filebytes: str, source_type: str, target_type: str):
+    url = "http://192.168.2.128:8501/convert"  # 使用 Docker 内部网络
+    request_data = {
+        "fileBytes": filebytes,
+        "sourceType": source_type,
+        "targetType": target_type
+    }
+
+    # 设置超时时间为 60 秒（或根据实际情况调整）
+    timeout = httpx.Timeout(100.0, read=100.0)
+    async with httpx.AsyncClient(timeout=timeout) as client:
+        response = await client.post(url, json=request_data)
+
+    if response.status_code == 200:
+        data = response.json()
+        if data.get("status") == "ok":
+            decoded_file = base64.b64decode(data["fileBytes"])
+            # print("wps后台正常返回", type(decoded_file))
+            return {"status": "ok", "data": decoded_file}
+        else:
+            # 返回错误信息而非直接抛出异常
+            return {"status": "error", "message": data.get("message", "未知错误")}
+    else:
+        return {"status": "error", "message": response.text or "未知错误"}
+
 @app.post("/convert")
 async def convert_file(request: ConvertRequest):
-    print(request.sourceType,"==>",request.targetType)
-    if request.sourceType=='pdf':
-        return JSONResponse(content={"error":f"unsurpported source file type"})
+    print(request.sourceType, "==>", request.targetType)
+    # 针对不支持的类型直接返回错误信息
+    if request.sourceType == 'pdf':
+        return JSONResponse(content={"error": "unsupported source file type"})
     if request.sourceType in ['ppt','pptx'] and request.targetType in ['doc','docx','xls','xlsx']:
-        return JSONResponse(content={"error":f"unsurpported that source file type ({request.sourceType}) to the targetType:{request.targetType}"})
-    # Base64 解码
-    binary_data = base64.b64decode(request.fileBytes)
+        return JSONResponse(content={"error": f"unsupported conversion from {request.sourceType} to {request.targetType}"})
 
-    # 执行转换
+    # 当源格式为 wps 或 dps 时，使用 WPS 后端进行转换
+    if request.sourceType in ['wps', 'dps']:
+        result = await convert_via_wps_backend(request.fileBytes, request.sourceType, request.targetType)
+        if result.get("status") == "ok":
+            return Response(content=result["data"], media_type="application/octet-stream")
+        else:
+            # 统一由 convert_file 返回错误给客户端
+            print(f"WPS 后端转换失败: {result.get('message')}")
+            return JSONResponse(content={"error": f"WPS backend error: {result.get('message')}"})
+
+    # 否则走本地转换逻辑
+    binary_data = base64.b64decode(request.fileBytes)
     try:
         result = await asyncio.get_event_loop().run_in_executor(
             executor, sync_convert, binary_data, request.targetType
         )
         return Response(content=result, media_type="application/octet-stream")
     except Exception as e:
-        print('执行转换失败：',request.sourceType,"==>",request.targetType,e,)
-        return JSONResponse(content={"error":f"{e}"})
+        print('执行转换失败：', request.sourceType, "==>", request.targetType, e)
+        return JSONResponse(content={"error": f"{e}"})
 
 @app.post("/uploadfile")
 async def convert_file(
@@ -178,7 +217,7 @@ async def convert_file(
         return Response(content=result, media_type="application/octet-stream")
     except Exception as e:
         print(e)
-    
+
 
 if __name__ == "__main__":
     print("start uvicorn server...")

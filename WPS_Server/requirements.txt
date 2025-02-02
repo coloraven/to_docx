@@ -1,0 +1,4 @@
+pywpsrpc==2.3.9
+fastapi
+uvicorn
+python-multipart

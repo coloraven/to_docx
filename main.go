@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -28,6 +29,7 @@ var (
 	targetFmt           string
 	concurrency         int
 	outputDir           string
+	file                string
 )
 
 // 目标格式映射表
@@ -46,14 +48,22 @@ func init() {
 	flag.IntVar(&concurrency, "c", 5, "并发转换数量 (默认: 5)")
 	flag.StringVar(&targetFmt, "t", "", "目标转换格式 (默认: 根据文件类型自动推断)")
 	flag.StringVar(&outputDir, "o", "", "转换后文件的保存目录 (默认: 原目录，并将原文件移动到 ./源文件/ 目录)")
-
+	flag.StringVar(&file, "file", "", "完整文件路径 (默认: 无)")
 	flag.Parse()
 
-	// 如果 -t 指定为 pdf，则查找支持转换为 PDF 的所有格式
+	// 如果指定了目标格式为pdf
 	if targetFmt == "pdf" {
-		supportedExtensions = pdfCompatibleFormats
+		// 如果未指定 -f，则默认支持所有 pdf 兼容格式
+		if *fileFormats == "doc,ppt,xls,wps,dps,et" {
+			supportedExtensions = pdfCompatibleFormats
+			//如果用户显式指定了 -f，则使用用户输入的值
+		} else {
+			supportedExtensions = strings.Split(*fileFormats, ",")
+		}
+		// 如果未指定目标格式为pdf
 	} else {
 		supportedExtensions = strings.Split(*fileFormats, ",")
+
 	}
 
 	// 统一格式，确保前面带 "."
@@ -132,7 +142,7 @@ func convertFile(index int, filePath string, wg *sync.WaitGroup) {
 	jsonData, _ := json.Marshal(reqData)
 
 	// 发送 POST 请求
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 40 * time.Second}
 	req, err := http.NewRequest("POST", srvAddr+"/convert", bytes.NewBuffer(jsonData))
 	if err != nil {
 		fmt.Printf("[任务 %d] 创建请求失败: %v\n", index, err)
@@ -142,7 +152,11 @@ func convertFile(index int, filePath string, wg *sync.WaitGroup) {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		fmt.Printf("[任务 %d] 发送请求失败: %v\n", index, err)
+		if err, ok := err.(net.Error); ok && err.Timeout() {
+			fmt.Printf("[任务 %d] [文件 %s] 请求超时: %v\n", index,filePath, err)
+		} else {
+			fmt.Printf("[任务 %d] [文件 %s] 发送请求失败: %v\n", index,filePath, err)
+		}
 		return
 	}
 	defer resp.Body.Close()
@@ -180,7 +194,7 @@ func convertFile(index int, filePath string, wg *sync.WaitGroup) {
 		}
 	}
 	// 生成唯一文件名，防止覆盖
-	outputFile = getUniqueFileName(outputFile, filepath.Base(filePath), targetType)
+	outputFile = getUniqueFileName(outputFile, filepath.Base(filePath))
 	// 保存转换后的文件
 	err = os.WriteFile(outputFile, convertedBytes, 0644)
 	if err != nil {
@@ -212,7 +226,7 @@ func findFiles(root string) ([]string, error) {
 }
 
 // 获取目标文件名，避免覆盖
-func getUniqueFileName(outputFile string, originalFileName string, targetType string) string {
+func getUniqueFileName(outputFile string, originalFileName string) string {
 	// fmt.Println(targetType)
 	exists, _ := PathExists(outputFile)
 	if !exists {
@@ -245,6 +259,30 @@ func isSupportedExtension(ext string) bool {
 
 func main() {
 	startTime := time.Now()
+
+	// 如果指定了 --file，则仅转换该文件
+	if file != "" {
+		// 检查文件是否存在
+		exists, err := PathExists(file)
+		if err != nil || !exists {
+			fmt.Printf("指定的文件 %s 不存在.\n", file)
+			return
+		}
+
+		// 检查文件是否是支持的格式
+		if !isSupportedExtension(filepath.Ext(file)) {
+			fmt.Printf("指定的文件 %s 格式不受支持.\n", file)
+			return
+		}
+
+		// 直接转换该文件
+		var wg sync.WaitGroup
+		wg.Add(1)
+		convertFile(0, file, &wg)
+		wg.Wait()
+		fmt.Printf("\n转换完成，总耗时: %.2f 秒\n", time.Since(startTime).Seconds())
+		return
+	}
 
 	// 查找所有符合条件的文件
 	files, err := findFiles(".")

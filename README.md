@@ -60,11 +60,27 @@ GOOS=windows GOARCH=386 go build -o converter_winx86.exe main.go # win32
 ```
 
 ## 其他
-1. 经过测试，当转换仓库根目录下的`无法转换.wps`
-这个文件时，服务端`CPU`一直高占用，LibreOffice假死，使用LibreOffice桌面版程序也打不开，程序假死，已向LibreOffice官方[反映](https://bugs.documentfoundation.org/show_bug.cgi?id=164929)。  
+1. 经过测试，当尝试转换仓库根目录下的`无法转换.wps`或`无法转换.dps`
+时，服务端`CPU`一直高占用，`LibreOffice`假死，使用`LibreOffice`桌面版程序也打不开，程序假死，已向`LibreOffice`官方[反映](https://bugs.documentfoundation.org/show_bug.cgi?id=164929)。  
 
 
-    > **此文件来源**：谷歌搜索`9937311.wps`或者`wps文件 filetype:wps`看到的，原始下载链接为：https://www.haizhu.gov.cn/gzhzcg/attachment/7/7706/7706583/9937311.wps。
+    > **`无法转换.wps`来源**：  
+    Google `"9937311.wps"`或者`"wps文件 filetype:wps"`  
+    原始下载链接为：https://www.haizhu.gov.cn/gzhzcg/attachment/7/7706/7706583/9937311.wps。  
+    > **`无法转换.dps`来源**：  
+    Google `"简 filetype:dps"`  
+    原始下载链接为：https://xfjyzx.net:3080/isschool/data/isschooldb200056/file/2018/04/新教师岗位适应与专业成长.dps20180428083935a0d5.dps
 
 
 2. `test\sub`目录下的`test.dps`来源：谷歌搜索`简历 filetype:ppt`然后使用`wps`软件另存为而来。
+
+
+## latest
+解决老旧`WPS Office`专用格式的`wps`和`dps`两种格式`LibreOffice`无法转换的问题。
+```bash
+docker build -t doc_conv_main .
+docker run -itd --name doc_conv_main -p 8500:8000 doc_conv_main
+cd WPS_Server
+docker build -t wps_backend .
+docker run -itd --name wps_backend -p 8501:8000 wps_backend
+```
