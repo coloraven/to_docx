@@ -15,6 +15,13 @@ from pydantic import BaseModel
 
 app = FastAPI()
 
+# 自动获取docker cli的--link 值
+wps_api_host = None
+for key, value in os.environ.items():
+    if key.endswith("_NAME"):
+        wps_api_host = value.split("/")[-1]  # 取最后一个部分
+        break
+
 class ConvertRequest(BaseModel):
     fileBytes: str   # Base64 编码的二进制数据
     sourceType: str
@@ -144,11 +151,11 @@ def sync_convert(infileData:bytes=None,convert_to:str="docx"):
     )
     return result
 
-import httpx
+
 
 
 async def convert_via_wps_backend(filebytes: str, source_type: str, target_type: str):
-    url = "http://192.168.2.128:8501/convert"  # 使用 Docker 内部网络
+    url = f"http://{wps_api_host}:8000/convert"  # 使用 Docker 内部网络
     request_data = {
         "fileBytes": filebytes,
         "sourceType": source_type,
