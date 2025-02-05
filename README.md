@@ -79,8 +79,13 @@ GOOS=windows GOARCH=386 go build -o converter_winx86.exe main.go # win32
 解决老旧`WPS Office`专用格式的`wps`和`dps`两种格式`LibreOffice`无法转换的问题。
 ```bash
 docker build -t doc_conv_main .
-docker run -itd --name doc_conv_main -p 8500:8000 doc_conv_main
 cd WPS_Server
 docker build -t wps_backend .
-docker run -itd --name wps_backend -p 8501:8000 wps_backend
+
+# RUN
+docker run -itd --name wps_backend wps_backend
+docker run -itd --name doc_conv_main --link wps_backend -p 8500:8000 doc_conv_main
 ```
+## TODO
+main容器增加wps api请求的超时时间设置
+go代码增加超时设置
