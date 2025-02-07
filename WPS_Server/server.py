@@ -1,5 +1,4 @@
 import base64
-import contextlib
 import os
 import subprocess
 import tempfile
@@ -15,42 +14,72 @@ from pywpsrpc.rpcwppapi import createWppRpcInstance, wppapi
 from pywpsrpc.rpcwpsapi import createWpsRpcInstance, wpsapi
 
 
-# ---------------------------
-# 定义 xvfb 上下文管理器
-# ---------------------------
-@contextlib.contextmanager
-def xvfb_run(display=":99", screen="0", resolution="800x600x16"):
-    """
-    启动 Xvfb 虚拟桌面，并设置环境变量 DISPLAY。
-    使用以下参数启动 Xvfb：
-      Xvfb :99 -screen 0 800x600x16 -nolisten tcp -auth /tmp/xvfb-run.iNFExt/Xauthority
-    其中降低了分辨率以减少内存占用。
-    """
-    cmd = [
-        "Xvfb",
-        display,
-        "-screen", screen, resolution,
-        "-nolisten", "tcp",
-        "-auth", "/tmp/xvfb-run.iNFExt/Xauthority"
-    ]
-    xvfb_proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    # 等待 Xvfb 启动（视环境情况可调整等待时间或检测启动状态）
-    time.sleep(1)
-    original_display = os.environ.get("DISPLAY")
-    os.environ["DISPLAY"] = display
-    try:
-        yield
-    finally:
-        if original_display is not None:
-            os.environ["DISPLAY"] = original_display
-        else:
-            os.environ.pop("DISPLAY", None)
-        xvfb_proc.terminate()
-        xvfb_proc.wait()
+# ------------------------------------------------------------------------------
+# 定义全局的 Xvfb 管理器
+# ------------------------------------------------------------------------------
+class XvfbManager:
+    def __init__(self, display=":99", screen="0", resolution="800x600x16",
+                 auth="/tmp/xvfb-run.iNFExt/Xauthority", idle_timeout=10):
+        """
+        :param display: 虚拟桌面号，如 :99
+        :param screen: 屏幕号，通常为 "0"
+        :param resolution: 分辨率与色深，示例 "800x600x16" 可降低资源占用
+        :param auth: Xvfb 启动时使用的认证文件路径
+        :param idle_timeout: 空闲多长时间（秒）后自动关闭 Xvfb
+        """
+        self.display = display
+        self.screen = screen
+        self.resolution = resolution
+        self.auth = auth
+        self.idle_timeout = idle_timeout
+        self.process = None
+        self.last_used = None
+        self.lock = threading.Lock()
+        self.shutdown_timer = None
 
-# ---------------------------
-# 定义支持的格式映射
-# ---------------------------
+    def start_if_not_running(self):
+        """如果 Xvfb 尚未启动，则启动；否则更新最后使用时间，并取消待关闭计时器。"""
+        with self.lock:
+            if self.process is None:
+                cmd = [
+                    "Xvfb", self.display,
+                    "-screen", self.screen, self.resolution,
+                    "-nolisten", "tcp",
+                    "-auth", self.auth
+                ]
+                self.process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                # 等待 Xvfb 启动
+                time.sleep(1)
+                os.environ["DISPLAY"] = self.display
+            self.last_used = time.time()
+            if self.shutdown_timer is not None:
+                self.shutdown_timer.cancel()
+                self.shutdown_timer = None
+
+    def schedule_shutdown(self):
+        """调度一个计时器，在空闲 idle_timeout 秒后关闭 Xvfb。"""
+        with self.lock:
+            if self.shutdown_timer is not None:
+                self.shutdown_timer.cancel()
+            self.shutdown_timer = threading.Timer(self.idle_timeout, self.shutdown_if_idle)
+            self.shutdown_timer.start()
+
+    def shutdown_if_idle(self):
+        """如果距离上次使用超过 idle_timeout，则关闭 Xvfb。"""
+        with self.lock:
+            now = time.time()
+            if self.last_used is None or now - self.last_used >= self.idle_timeout:
+                if self.process is not None:
+                    self.process.terminate()
+                    self.process.wait()
+                    self.process = None
+
+# 实例化全局的 Xvfb 管理器
+xvfb_manager = XvfbManager()
+
+# ------------------------------------------------------------------------------
+# 定义支持的文件格式映射
+# ------------------------------------------------------------------------------
 formats = {
     # WPS 文字
     "doc": wpsapi.wdFormatDocument,
@@ -71,17 +100,17 @@ formats = {
     "et": '',
 }
 
-# ---------------------------
+# ------------------------------------------------------------------------------
 # 定义请求体
-# ---------------------------
+# ------------------------------------------------------------------------------
 class ConvertRequest(BaseModel):
     fileBytes: str  # Base64 编码的文件内容
     sourceType: str  # 源文件类型（如 docx, pdf）
     targetType: str  # 目标文件类型（如 doc, pdf）
 
-# ---------------------------
-# 启动 FastAPI
-# ---------------------------
+# ------------------------------------------------------------------------------
+# 启动 FastAPI 应用
+# ------------------------------------------------------------------------------
 app = FastAPI()
 
 class ConvertException(Exception):
@@ -92,18 +121,19 @@ class ConvertException(Exception):
     def __str__(self):
         return f"Convert failed: {self.text}, ErrCode: {hex(self.hr & 0xFFFFFFFF)}"
 
-# 全局锁，确保同一时间只有一个 WPS（或相关）实例在工作
+# 使用全局锁，确保同一时间只有一个 WPS（或相关）实例在工作
 conversion_lock = threading.Lock()
 
-# ---------------------------
-# 文件转换函数
-# ---------------------------
+# ------------------------------------------------------------------------------
+# 文件转换函数（转换期间自动启动/刷新 Xvfb，并在结束后调度关闭）
+# ------------------------------------------------------------------------------
 def convert_file(input_file, output_file, target_format):
     with conversion_lock:
-        # 在转换时启动 xvfb 虚拟桌面
-        with xvfb_run():
+        # 启动或刷新 Xvfb
+        xvfb_manager.start_if_not_running()
+        try:
             ext = input_file.rsplit('.', 1)[-1].lower()
-            hr = S_OK  # 初始化 hr
+            hr = S_OK  # 初始化返回码
 
             if ext in ['doc', 'docx', 'rtf', 'html', 'pdf', 'xml', 'wps']:
                 hr, rpc = createWpsRpcInstance()
@@ -142,13 +172,16 @@ def convert_file(input_file, output_file, target_format):
                 hr = workbook.SaveAs(output_file, FileFormat=formats[target_format])
                 workbook.Close()
                 app_instance.Quit()
-            
+
             if hr != S_OK:
                 raise ConvertException("Failed to save file", hr)
+        finally:
+            # 无论转换成功与否，都调度10秒后关闭 Xvfb（如果10秒内无新的转换请求，该进程将被终止）
+            xvfb_manager.schedule_shutdown()
 
-# ---------------------------
-# API 路由
-# ---------------------------
+# ------------------------------------------------------------------------------
+# API 路由：转换接口
+# ------------------------------------------------------------------------------
 @app.post("/convert")
 def convert(request: ConvertRequest):
     if request.sourceType not in formats or request.targetType not in formats:
@@ -170,23 +203,24 @@ def convert(request: ConvertRequest):
 
         os.remove(temp_input_path)
         os.remove(temp_output_path)
-        
+
         return {"status": "ok", "fileBytes": converted_file_data}
     except Exception as e:
         return {"status": "error", "message": str(e)}
 
-# ---------------------------
-# 单独线程：每 3 秒检测并结束 wpscloudsvr 进程
-# ---------------------------
+# ------------------------------------------------------------------------------
+# 后台线程：每 3 秒检测并结束 /opt/kingsoft/wps-office/office6/wpscloudsvr 进程
+# ------------------------------------------------------------------------------
 def monitor_wpscloudsvr():
     while True:
         subprocess.call(["pkill", "-f", "/opt/kingsoft/wps-office/office6/wpscloudsvr"])
         time.sleep(3)
 
-# ---------------------------
+# ------------------------------------------------------------------------------
 # 主程序入口
-# ---------------------------
+# ------------------------------------------------------------------------------
 if __name__ == "__main__":
+    # 启动监控线程（守护线程，主程序退出时自动结束）
     monitor_thread = threading.Thread(target=monitor_wpscloudsvr, daemon=True)
     monitor_thread.start()
     uvicorn.run(app, host="0.0.0.0", port=8000)

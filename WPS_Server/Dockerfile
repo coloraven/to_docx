@@ -15,7 +15,7 @@ ENV LANG=C.UTF-8 \
 WORKDIR /app
 
 # python3.9(3.9.2)
-RUN sed -i "s|http://deb.debian.org/debian|http://mirror.sjtu.edu.cn/debian|g" /etc/apt/sources.list && \
+RUN sed -i "s|http://deb.debian.org/debian|http://mirror.tuna.tsinghua.edu.cn/debian|g" /etc/apt/sources.list && \
     apt-get update && \
     apt-get install -y curl procps libqt5xml5 python3 python3-pip && \
     # Cleaning cache:
