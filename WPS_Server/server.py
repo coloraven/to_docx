@@ -99,7 +99,7 @@ formats = {
     "csv": etapi.xlCSV,
     "et": '',
 }
-
+pid = None
 # ------------------------------------------------------------------------------
 # 定义请求体
 # ------------------------------------------------------------------------------
@@ -124,6 +124,12 @@ class ConvertException(Exception):
 # 使用全局锁，确保同一时间只有一个 WPS（或相关）实例在工作
 conversion_lock = threading.Lock()
 
+def getRpcPid(name,rpc):
+    global pid
+    hr, pid = rpc.getProcessPid()
+    if hr != S_OK:
+        raise ConvertException("Can't  get the PID", hr)
+    print(f"{name} instance's PID:{pid}")
 # ------------------------------------------------------------------------------
 # 文件转换函数（转换期间自动启动/刷新 Xvfb，并在结束后调度关闭）
 # ------------------------------------------------------------------------------
@@ -137,7 +143,16 @@ def convert_file(input_file, output_file, target_format):
 
             if ext in ['doc', 'docx', 'rtf', 'html', 'pdf', 'xml', 'wps']:
                 hr, rpc = createWpsRpcInstance()
+                if hr != S_OK:
+                    raise ConvertException("Can't create the rpc instance", hr)
                 hr, app_instance = rpc.getWpsApplication()
+                if hr != S_OK:
+                    raise ConvertException("Can't get the application", hr)
+                # ------------------------------------------------------------------------------
+                # 获取实例pid，供销毁用
+                # ------------------------------------------------------------------------------
+                getRpcPid("Word",rpc)
+
                 app_instance.Visible = False
                 docs = app_instance.Documents
                 hr, doc = docs.Open(input_file, ReadOnly=True)
@@ -150,7 +165,16 @@ def convert_file(input_file, output_file, target_format):
 
             elif ext in ['ppt', 'pptx', 'dps']:
                 hr, rpc = createWppRpcInstance()
+                if hr != S_OK:
+                    raise ConvertException("Can't create the rpc instance", hr)
                 hr, app_instance = rpc.getWppApplication()
+                if hr != S_OK:
+                    raise ConvertException("Can't get the application", hr)
+                # ------------------------------------------------------------------------------
+                # 获取实例pid，供销毁用
+                # ------------------------------------------------------------------------------
+                getRpcPid("PowerPoint",rpc)
+
                 presentations = app_instance.Presentations
                 hr, presentation = presentations.Open(input_file, WithWindow=False)
                 if hr != S_OK:
@@ -162,7 +186,15 @@ def convert_file(input_file, output_file, target_format):
 
             elif ext in ['xls', 'xlsx', 'csv', 'et']:
                 hr, rpc = createEtRpcInstance()
+                if hr != S_OK:
+                    raise ConvertException("Can't create the rpc instance", hr)
                 hr, app_instance = rpc.getEtApplication()
+                if hr != S_OK:
+                    raise ConvertException("Can't get the application", hr)
+                # ------------------------------------------------------------------------------
+                # 获取实例pid，供销毁用
+                # ------------------------------------------------------------------------------
+                getRpcPid("Excel",rpc)
                 app_instance.Visible = False
                 workbooks = app_instance.Workbooks
                 hr, workbook = workbooks.Open(input_file)
@@ -196,7 +228,13 @@ def convert(request: ConvertRequest):
             temp_input_path = temp_input.name
 
         temp_output_path = temp_input_path.replace(f".{request.sourceType}", f".{request.targetType}")
-        convert_file(temp_input_path, temp_output_path, request.targetType)
+        try:
+            convert_file(temp_input_path, temp_output_path, request.targetType)
+        except Exception as e:
+            print(e)
+        finally:
+            if pid is not None:
+                subprocess.call("kill -9 {}".format(pid), shell=True)
 
         with open(temp_output_path, "rb") as output_file:
             converted_file_data = base64.b64encode(output_file.read()).decode("utf-8")
