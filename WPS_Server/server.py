@@ -6,7 +6,7 @@ import threading
 import time
 
 import uvicorn
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from pydantic import BaseModel
 from pywpsrpc.common import S_OK
 from pywpsrpc.rpcetapi import createEtRpcInstance, etapi
